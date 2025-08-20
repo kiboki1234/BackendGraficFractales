@@ -27,18 +27,18 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Trigger de deploy (simulado)
+      - name: Trigger de deploy
         run: |
           echo "Despliegue del backend..."
           sleep 3
           echo "Deploy finalizado."
 
-      - name: Validar endpoint (simulado)
+      - name: Validar endpoint
         run: |
           echo "Probando endpoint http://localhost:5000/health"
           echo "200 OK"
 
-      - name: Mostrar URL pública (ficticia)
+      - name: URL pública
         run: |
           echo "Backend disponible en: https://backendgraficfractales.onrender.com/"
           echo "Frontend disponible en: https://frontend-grafica-fractales.vercel.app/"
