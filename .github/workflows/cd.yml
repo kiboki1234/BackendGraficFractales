@@ -40,5 +40,5 @@ jobs:
 
       - name: Mostrar URL pública (ficticia)
         run: |
-          echo "Backend disponible en: https://tu-backend.ejemplo.com/"
+          echo "Backend disponible en: https://backendgraficfractales.onrender.com/"
           echo "Frontend disponible en: https://frontend-grafica-fractales.vercel.app/"
