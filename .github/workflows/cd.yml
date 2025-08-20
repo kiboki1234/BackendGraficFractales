@@ -1,57 +1,81 @@
-# .github/workflows/cd.yml
 name: CD - Backend
 
 on:
   workflow_run:
-    workflows: ["CI + k6"]          # 👈 Debe coincidir EXACTO con el name: del CI
+    workflows: ['CI + k6']
     types: [completed]
-    branches: [main]                # 👈 Filtra por la rama del workflow que terminó
-
-  workflow_dispatch: {}             # 👈 Permite dispararlo manualmente desde Actions
+  # opcional: disparo manual
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
-concurrency:
-  group: cd-backend
-  cancel-in-progress: true
-
 jobs:
   deploy:
-    name: Deploy a Render si CI+k6 OK
+    name: Publicar Environment + Smoke test
     runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
 
-    # Solo si el CI terminó en success
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    env:
-      BACKEND_URL: ${{ secrets.BACKEND_BASE_URL }}      # p.ej. https://tuapp.onrender.com
-      RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+      - name: Cargar configuración (.github/deploy.conf)
+        id: cfg
+        shell: bash
+        run: |
+          if [ -f .github/deploy.conf ]; then
+            # exporta variables al entorno del job
+            set -a
+            source .github/deploy.conf
+            set +a
+          else
+            echo "Falta .github/deploy.conf"; exit 1
+          fi
+          # persistimos a GITHUB_ENV para usarlas después
+          echo "BACKEND_URL=${BACKEND_URL}" >> "$GITHUB_ENV"
+          echo "RENDER_DEPLOY_HOOK=${RENDER_DEPLOY_HOOK}" >> "$GITHUB_ENV"
+          echo "Usando BACKEND_URL=$BACKEND_URL"
 
-    # Mapea un environment para que GitHub muestre el badge/URL en la UI
+      # (Opcional) Si algún día agregas el hook en el conf, se dispara; si no, se omite.
+      - name: Trigger deploy hook (opcional)
+        if: env.RENDER_DEPLOY_HOOK != ''
+        run: |
+          echo "Llamando a deploy hook..."
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+
+      - name: Esperar a que el backend esté healthy
+        id: health
+        run: |
+          echo "Haciendo smoke test a: $BACKEND_URL/health"
+          ok=0
+          for i in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" || true)
+            echo "Intento $i => HTTP $code" | tee -a deploy-log.txt
+            if [ "$code" = "200" ]; then
+              ok=1; break
+            fi
+            sleep 5
+          done
+          if [ "$ok" = "1" ]; then
+            echo "healthy=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=0" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      # Subimos evidencia (logs del smoke test)
+      - name: Subir artefacto (deploy-log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: deploy-log.txt
+          if-no-files-found: warn
+
+    # ← Esto crea el "environment" con URL visible en la UI de GitHub
     environment:
       name: production
       url: ${{ env.BACKEND_URL }}
-
-    steps:
-      - name: Trigger Render deploy hook
-        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
-
-      - name: Esperar a que el backend esté healthy
-        run: |
-          for i in {1..30}; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" || true)
-            if [ "$code" = "200" ]; then
-              echo "Healthy ✅"
-              exit 0
-            fi
-            echo "Intento $i => $code, esperando 10s…"
-            sleep 10
-          done
-          echo "No levantó ❌"
-          exit 1
-
-      - name: Publicar URL en el summary
-        run: |
-          echo "### ✅ Deploy OK" >> $GITHUB_STEP_SUMMARY
-          echo "- URL: $BACKEND_URL" >> $GITHUB_STEP_SUMMARY
