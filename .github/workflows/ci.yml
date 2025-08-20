@@ -1,4 +1,4 @@
-name: CI
+name: CI + k6
 
 on:
   push:
@@ -7,35 +7,81 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: 'npm'
 
       - name: Install deps
-        run: npm install
+        run: npm ci || npm install
 
-      - name: Run unit tests with coverage
+      - name: Run unit tests (fail if coverage < 90%)
         run: npm run test:ci
 
+      - name: Upload coverage (HTML + lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/**
+
   performance:
+    needs: unit
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'perf')
     runs-on: ubuntu-latest
-    needs: test
+    env:
+      PORT: 5000
+      BASE_URL: http://127.0.0.1:5000
+    strategy:
+      fail-fast: false
+      matrix:
+        script:
+          - tests/k6/mandelbrot/ramp.js
+          - tests/k6/mandelbrot/spike.js
+          - tests/k6/mandelbrot/soak.js
+
     steps:
       - uses: actions/checkout@v4
-      - uses: grafana/setup-k6-action@v1
 
-      - name: Run k6 ramp test
-        run: k6 run tests/k6/ramp.js
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
 
-      - name: Run k6 spike test
-        run: k6 run tests/k6/spike.js
+      - name: Install deps
+        run: npm ci || npm install
 
-      - name: Run k6 soak test
-        run: k6 run tests/k6/soak.js
+      - name: Start server
+        run: |
+          node -e "require('./server.js')" &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:5000/health >/dev/null; then echo 'UP'; exit 0; fi
+            sleep 1
+          done
+          echo "Server not up"; exit 1
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6 ${{ matrix.script }}
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+        run: |
+          mkdir -p artifacts/k6
+          k6 run --tag test=${{ matrix.script }} --summary-export artifacts/k6/$(basename ${{ matrix.script }} .js).json ${{ matrix.script }}
+
+      - name: Upload k6 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: artifacts/k6/**
