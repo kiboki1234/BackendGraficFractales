@@ -28,8 +28,9 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json   # <-- raíz del repo
 
-      - name: Install deps
-        run: npm ci
+      - name: Install deps (prefer ci)
+        run: |
+            npm ci || npm install
 
       - name: Run unit tests (fail if coverage < 90%)
         run: npm run test:ci
