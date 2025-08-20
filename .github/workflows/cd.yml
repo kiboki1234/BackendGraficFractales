@@ -2,28 +2,44 @@ name: CD - Backend (Render)
 
 on:
   workflow_run:
-    workflows: ["CI - Backend"]
+    # Debe coincidir EXACTO con el name: de tu CI
+    workflows: ['CI + k6']
     types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
+    name: Deploy a Render si CI+k6 OK
     runs-on: ubuntu-latest
+    # Solo si el CI terminó OK y viene de main
     if: >
-      ${{
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main'
-      }}
-    steps:
-      - name: Trigger Render Deploy Hook
-        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
 
-      - name: Wait for healthy backend
-        env:
-          BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+    # --- aquí mapeas el secret a una env var ---
+    env:
+      BACKEND_URL: ${{ secrets.BACKEND_BASE_URL }}
+      RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+
+    # Esto muestra el badge/URL en la UI de GitHub
+    environment:
+      name: production
+      url: ${{ env.BACKEND_URL }}
+
+    steps:
+      - name: Trigger Render deploy hook
+        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+
+      - name: Esperar a que el backend esté healthy
         run: |
           for i in {1..30}; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/health" || true)
-            if [ "$code" = "200" ]; then exit 0; fi
-            echo "Intento $i status=$code; sleep 10s"; sleep 10
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" || true)
+            if [ "$code" = "200" ]; then
+              echo "Healthy ✅"; exit 0
+            fi
+            echo "Intento $i => $code, esperando 10s…"; sleep 10
           done
-          exit 1
+          echo "No levantó ❌"; exit 1
