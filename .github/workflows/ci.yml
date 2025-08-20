@@ -13,35 +13,20 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  BACK_DIR: BACKENDGRAFICFRACTALES   # <-- OJO: usa exactamente el nombre/casing de tu carpeta
-
 jobs:
   unit:
     name: Unit tests + Coverage (≥90%)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.BACK_DIR }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # Paso de debug para ver estructura y confirmar casing
-      - name: Mostrar estructura (debug)
-        run: |
-          pwd
-          ls -la
-          echo "---- contenido de $BACK_DIR ----"
-          ls -la $BACK_DIR
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: npm
-          # ¡Casing correcto!
-          cache-dependency-path: ${{ env.BACK_DIR }}/package-lock.json
+          cache-dependency-path: package-lock.json   # <-- raíz del repo
 
       - name: Install deps
         run: npm ci
@@ -57,7 +42,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage
-          path: ${{ env.BACK_DIR }}/coverage
+          path: coverage
 
   performance:
     name: k6 (${{ matrix.module }} • ${{ matrix.scenario }})
@@ -70,9 +55,6 @@ jobs:
       matrix:
         module: [julia, mandelbrot, sierpinski, koch, tree]
         scenario: [ramp, spike, soak]
-    defaults:
-      run:
-        working-directory: ${{ env.BACK_DIR }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -101,5 +83,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: k6-summaries
-          path: ${{ env.BACK_DIR }}/artifacts/*.json
+          path: artifacts/*.json
           if-no-files-found: warn
