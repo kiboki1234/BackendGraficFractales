@@ -1,30 +1,41 @@
+// routers/mandelbrotRoutes.js
 const express = require('express');
 const router = express.Router();
 const { mandelbrot } = require('../utils/mandelbrot');
 
-// GET con query (front/k6):
-// /api/mandelbrot?real=&imag=&maxIter=
+// GET clásico de punto (si ya lo tienes, puedes dejarlo)
 router.get('/mandelbrot', (req, res) => {
-  try {
-    const { real = -0.5, imag = 0, maxIter = 100 } = req.query;
-    const c = { real: parseFloat(real), imag: parseFloat(imag) };
-    const it = mandelbrot(c, parseInt(maxIter));
-    return res.json({ ok: true, fractal: 'mandelbrot', iterations: it });
-  } catch (e) {
-    console.error('Error /api/mandelbrot GET:', e);
-    return res.status(500).json({ ok: false, error: 'internal_error' });
-  }
+  const { real = -0.5, imag = 0, maxIter = 100 } = req.query;
+  const c = { real: parseFloat(real), imag: parseFloat(imag) };
+  const it = mandelbrot(c, parseInt(maxIter));
+  return res.json({ ok: true, iterations: it });
 });
 
-// POST opcional (body JSON):
-// { maxIter, c:{real,imag} }
-router.post('/mandelbrot', (req, res) => {
+// ✅ NUEVO: devuelve un grid 2D con iteraciones para cada píxel
+router.get('/mandelbrot-grid', (req, res) => {
   try {
-    const { maxIter = 100, c = { real: -0.5, imag: 0 } } = req.body || {};
-    const it = mandelbrot(c, parseInt(maxIter));
-    return res.json({ ok: true, fractal: 'mandelbrot', iterations: it });
+    let {
+      width = 300, height = 300, maxIter = 100,
+      xmin = -2.5, xmax = 1, ymin = -1, ymax = 1
+    } = req.query;
+
+    const W = parseInt(width);
+    const H = parseInt(height);
+    const MI = parseInt(maxIter);
+    xmin = parseFloat(xmin); xmax = parseFloat(xmax);
+    ymin = parseFloat(ymin); ymax = parseFloat(ymax);
+
+    const data = Array.from({ length: H }, (_, j) => {
+      const y = ymin + (j / (H - 1)) * (ymax - ymin);
+      return Array.from({ length: W }, (_, i) => {
+        const x = xmin + (i / (W - 1)) * (xmax - xmin);
+        return mandelbrot({ real: x, imag: y }, MI);
+      });
+    });
+
+    return res.json({ ok: true, data, maxIter: MI });
   } catch (e) {
-    console.error('Error /api/mandelbrot POST:', e);
+    console.error('Error /api/mandelbrot-grid:', e);
     return res.status(500).json({ ok: false, error: 'internal_error' });
   }
 });
