@@ -1,0 +1,116 @@
+name: CI - Backend
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# Evita carreras: si subes más commits al mismo PR, cancela el run anterior
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests + Coverage (≥90%)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      # Asegúrate de tener coverageThreshold en Jest o NYC para fallar <90%
+      # (por ejemplo en package.json / jest.config.*)
+      - name: Run unit tests with coverage
+        run: npm test -- --ci --coverage
+        env:
+          CI: "true"
+
+      - name: Save coverage summary
+        if: always()
+        run: |
+          mkdir -p artifacts
+          # Copia HTML y lcov si existen
+          if [ -d coverage ]; then
+            cp -r coverage artifacts/coverage
+          fi
+          # Guarda un resumen de consola
+          npm test -- --coverage --coverageReporters="text-summary" --passWithNoTests | tee artifacts/test-summary.txt || true
+
+      - name: Upload artifacts (coverage & test summary)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-and-summary
+          path: |
+            backend/artifacts/**
+            backend/coverage/**
+          if-no-files-found: warn
+
+  performance:
+    name: k6 (ramp | spike | soak) con thresholds
+    runs-on: ubuntu-latest
+    needs: test
+    # Corre en main o en PRs con etiqueta 'perf'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'perf'))
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnupg ca-certificates
+          sudo mkdir -p /etc/apt/keyrings
+          curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/k6.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/k6.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Ensure artifacts dir
+        run: mkdir -p artifacts
+
+      # ---- RAMP ----
+      - name: Ramp test
+        run: k6 run tests/k6/ramp.js --summary-export artifacts/ramp-summary.json
+        env:
+          BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+
+      # ---- SPIKE ----
+      - name: Spike test
+        run: k6 run tests/k6/spike.js --summary-export artifacts/spike-summary.json
+        env:
+          BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+
+      # ---- SOAK ----
+      - name: Soak test
+        run: k6 run tests/k6/soak.js --summary-export artifacts/soak-summary.json
+        env:
+          BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+
+      - name: Upload k6 summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summaries
+          path: backend/artifacts/*.json
+          if-no-files-found: warn
