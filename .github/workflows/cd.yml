@@ -2,15 +2,11 @@ name: CD - Backend (Render)
 
 on:
   workflow_run:
-    workflows: ["CI - Backend"]   # Debe llamarse exactamente como tu workflow de CI
+    workflows: ["CI - Backend"]
     types: [completed]
-
-permissions:
-  contents: read
 
 jobs:
   deploy:
-    name: Trigger Render Deploy
     runs-on: ubuntu-latest
     if: >
       ${{
@@ -19,23 +15,15 @@ jobs:
       }}
     steps:
       - name: Trigger Render Deploy Hook
-        run: |
-          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+        run: curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
 
-      # (Opcional) Espera a que el servicio esté saludable antes de continuar (sondea /health)
       - name: Wait for healthy backend
         env:
           BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
         run: |
-          echo "Esperando a que $BASE_URL/health responda 200..."
           for i in {1..30}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/health" || true)
-            if [ "$code" = "200" ]; then
-              echo "OK!"
-              exit 0
-            fi
-            echo "Intento $i: status=$code; reintentando en 10s..."
-            sleep 10
+            if [ "$code" = "200" ]; then exit 0; fi
+            echo "Intento $i status=$code; sleep 10s"; sleep 10
           done
-          echo "El backend no respondió 200 a tiempo."
           exit 1

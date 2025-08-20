@@ -10,55 +10,60 @@ concurrency:
   group: ci-backend-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+permissions:
+  contents: read
 
-      - name: Mostrar estructura (debug)
-        run: |
-          pwd
-          ls -la
+jobs:
+  unit:
+    name: Unit tests + Coverage (≥90%)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: BackendGraficFractales
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: npm
-          cache-dependency-path: package-lock.json   # <-- en la raíz
+          cache-dependency-path: BackendGraficFractales/package-lock.json
 
       - name: Install deps
         run: npm ci
 
-      - name: Unit tests (fail <90% coverage)
-        run: npm test -- --ci --coverage
+      - name: Run unit tests (fail if coverage < 90%)
+        run: npm run test:ci
         env:
           CI: "true"
+          NODE_ENV: "test"
 
-      - name: Guardar coverage
-        if: always()
-        run: |
-          mkdir -p artifacts
-          if [ -d coverage ]; then cp -r coverage artifacts/coverage; fi
-          npm test -- --coverage --coverageReporters="text-summary" --passWithNoTests | tee artifacts/test-summary.txt || true
-
-      - name: Upload artifacts
+      - name: Upload coverage (HTML + lcov)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backend-coverage-and-summary
-          path: |
-            artifacts/**
-            coverage/**
-          if-no-files-found: warn
+          name: backend-coverage
+          path: BackendGraficFractales/coverage
 
   performance:
+    name: k6 (${{ matrix.module }} • ${{ matrix.scenario }})
     runs-on: ubuntu-latest
-    needs: test
+    needs: unit
+    # Solo en main o en PRs con etiqueta "perf"
     if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'perf'))
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [julia, mandelbrot, sierpinski, koch, tree]
+        scenario: [ramp, spike, soak]
+    defaults:
+      run:
+        working-directory: BackendGraficFractales
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install k6
         run: |
@@ -67,31 +72,22 @@ jobs:
           sudo mkdir -p /etc/apt/keyrings
           curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/k6.gpg
           echo "deb [signed-by=/etc/apt/keyrings/k6.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
-          sudo apt-get update
-          sudo apt-get install -y k6
+          sudo apt-get update && sudo apt-get install -y k6
 
       - name: Ensure artifacts dir
         run: mkdir -p artifacts
 
-      - name: Ramp
-        run: k6 run tests/k6/ramp.js --summary-export artifacts/ramp-summary.json
+      - name: Run ${{ matrix.scenario }} for ${{ matrix.module }}
+        run: |
+          k6 run tests/k6/${{ matrix.module }}/${{ matrix.scenario }}.js \
+            --summary-export artifacts/${{ matrix.module }}-${{ matrix.scenario }}.json
         env:
           BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
 
-      - name: Spike
-        run: k6 run tests/k6/spike.js --summary-export artifacts/spike-summary.json
-        env:
-          BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
-
-      - name: Soak
-        run: k6 run tests/k6/soak.js --summary-export artifacts/soak-summary.json
-        env:
-          BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
-
-      - name: Upload k6
+      - name: Upload k6 summaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k6-summaries
-          path: artifacts/*.json
+          path: BackendGraficFractales/artifacts/*.json
           if-no-files-found: warn
