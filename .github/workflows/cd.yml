@@ -1,30 +1,34 @@
-name: CD - Backend (Render)
+# .github/workflows/cd.yml
+name: CD - Backend
 
 on:
   workflow_run:
-    # Debe coincidir EXACTO con el name: de tu CI
-    workflows: ['CI + k6']
+    workflows: ["CI + k6"]          # 👈 Debe coincidir EXACTO con el name: del CI
     types: [completed]
-  workflow_dispatch:
+    branches: [main]                # 👈 Filtra por la rama del workflow que terminó
+
+  workflow_dispatch: {}             # 👈 Permite dispararlo manualmente desde Actions
 
 permissions:
   contents: read
+
+concurrency:
+  group: cd-backend
+  cancel-in-progress: true
 
 jobs:
   deploy:
     name: Deploy a Render si CI+k6 OK
     runs-on: ubuntu-latest
-    # Solo si el CI terminó OK y viene de main
-    if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
 
-    # --- aquí mapeas el secret a una env var ---
+    # Solo si el CI terminó en success
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
     env:
-      BACKEND_URL: ${{ secrets.BACKEND_BASE_URL }}
+      BACKEND_URL: ${{ secrets.BACKEND_BASE_URL }}      # p.ej. https://tuapp.onrender.com
       RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
 
-    # Esto muestra el badge/URL en la UI de GitHub
+    # Mapea un environment para que GitHub muestre el badge/URL en la UI
     environment:
       name: production
       url: ${{ env.BACKEND_URL }}
@@ -38,8 +42,16 @@ jobs:
           for i in {1..30}; do
             code=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_URL/health" || true)
             if [ "$code" = "200" ]; then
-              echo "Healthy ✅"; exit 0
+              echo "Healthy ✅"
+              exit 0
             fi
-            echo "Intento $i => $code, esperando 10s…"; sleep 10
+            echo "Intento $i => $code, esperando 10s…"
+            sleep 10
           done
-          echo "No levantó ❌"; exit 1
+          echo "No levantó ❌"
+          exit 1
+
+      - name: Publicar URL en el summary
+        run: |
+          echo "### ✅ Deploy OK" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: $BACKEND_URL" >> $GITHUB_STEP_SUMMARY
