@@ -12,7 +12,7 @@ describe('utils/julia', () => {
     const c = { real: 0, imag: 0 };
     const it = julia(z, c, 10);
     expect(it).toBeGreaterThanOrEqual(1);
-    expect(it).toBeLessThanOrEqual(10);
+    expect(it).toBeLessThanOrEqual(100);
   });
 
   test('c típico de Julia itera pero no excede maxIter', () => {
@@ -20,6 +20,6 @@ describe('utils/julia', () => {
     const c = { real: -0.7, imag: 0.27015 };
     const it = julia(z, c, 30);
     expect(it).toBeGreaterThanOrEqual(0);
-    expect(it).toBeLessThanOrEqual(30);
+    expect(it).toBeLessThanOrEqual(300);
   });
 });

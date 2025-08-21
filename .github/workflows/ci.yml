@@ -27,7 +27,6 @@ jobs:
       - name: Install deps
         run: npm install
 
-      # (Opcional) mostrar estructura
       - name: Mostrar estructura (debug)
         run: ls -la && node -v && npm -v
 
