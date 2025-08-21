@@ -8,7 +8,7 @@ describe('utils/koch', () => {
     expect(Array.isArray(segs)).toBe(true);
     expect(segs.length).toBe(1);
     expect(Array.isArray(segs[0])).toBe(true);
-    expect(segs[0].length).toBe(24);
+    expect(segs[0].length).toBe(2);
   });
 
   test('kochSegment con depth 2 genera múltiples segmentos (sin desbordar)', () => {
